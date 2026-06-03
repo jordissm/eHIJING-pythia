@@ -9,6 +9,7 @@
 #include <gsl/gsl_roots.h>
 #include <gsl/gsl_sf_expint.h>
 #include <gsl/gsl_sf_gamma.h>
+#include <gsl/gsl_sf_bessel.h>
 #include <string>
 #include <sstream>
 #include <filesystem>
@@ -486,8 +487,8 @@ double eHIJING::sample_z_stochastic(double & z, int pid,
                double X = B/A;
                double Y = A*(1.-X);
                if (X<.5){
-                    double jv0 = std::cyl_bessel_j(0,B),
-                           jv1 = std::cyl_bessel_j(1,B);
+                    double jv0 = gsl_sf_bessel_J0(B),
+                           jv1 = gsl_sf_bessel_J1(B);
                     dw = - X*std::sin(A)*jv1
                          + X*X * ( .5 + X*std::cos(A) * (jv1/B - jv0) );
                } else {
