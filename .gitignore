@@ -13,6 +13,8 @@ tmp/
 *.zip
 *.a
 *.so
+*.inc
+examples/*.inc
 lib/
 */NERSC
 cpp_interface/results*/
