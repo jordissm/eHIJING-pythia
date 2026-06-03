@@ -6,7 +6,7 @@ Random:seed = 0
 Beams:idA = 2212
 Beams:idB = 11
 Beams:frameType = 2
-Beams:eA = 0 # proton beam energy (+,0,0,+) [GeV], E=max(M, eA)
+Beams:eA = 0.938  # proton beam energy (+,0,0,+) [GeV], E=max(M, eA)
 Beams:eB = 27.6 # electron beam energy (+,0,0,-) [GeV]
 
 
@@ -14,22 +14,25 @@ Beams:eB = 27.6 # electron beam energy (+,0,0,-) [GeV]
 # Phasespace cut:
 # Minimum hard scale squared [GeV^2]
 PhaseSpace:Q2Min = 1.0
-PhaseSpace:Q2Max = 4.0
 PhaseSpace:mHatMin = 0
 PhaseSpace:pTHatMinDiverge = 0.5
 
 # >>>>>> Do not change the following without a good reason...
-# PDF:lepton = on
-# PhotonParton:all = on
+PDF:lepton = off
 
-
-# WeakBosonExchange:all = on
 WeakBosonExchange:ff2ff(t:gmZ) = on
 WeakBosonExchange:ff2ff(t:W) = off
 
+SpaceShower:QCDshower = on
 SpaceShower:pTmaxMatch = 2
-SpaceShower:dipoleRecoil = off
+SpaceShower:dipoleRecoil = on
 
+TimeShower:QCDshower = on
+TimeShower:interleave = off
+TimeShower:QEDshowerByL = off
+
+PartonLevel:Remnants = on
+Check:event = off
 HadronLevel:all = off
 HadronLevel:decay = off
 
@@ -41,4 +44,6 @@ PDF:useHardNPDFA = on
 
 # eHIJING Switch
 eHIJING:all = on
-eHIJING:Mode = 1
+eHIJING:xG-n = 4.0
+eHIJING:xG-lambda = -0.25
+eHIJING:Mode = 0

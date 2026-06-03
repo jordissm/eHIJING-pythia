@@ -1,12 +1,14 @@
 #include "Pythia8/Pythia.h"
 using namespace Pythia8;
 #include <fstream>
+#include <iomanip>
 #include <random>
 #include <sstream>
+#include <string>
 #include <algorithm>
 #include <unistd.h>
 std::vector<int> PIDS({111,211, -211, 321,-321,2212,-2212});
-std::vector<double> zbins({1e-4,1e-3,1e-2,0.02,.03,0.04,0.06,0.08,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1});
+std::vector<double> zbins({1e-4,1e-3,1e-2,0.02,0.03,0.04,0.06,0.08,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1});
 std::vector<double> Q2bins({1,1.5,2,2.5,3,4,6,8,10,15,20,25,50,81,200,400,800,1600});
 std::vector<double> xBbins({1e-6,1e-5,1e-4,2e-4,4e-4,7e-4,1e-3,
 		                 2e-3,4e-3,7e-3,1e-2,
@@ -16,9 +18,8 @@ std::vector<double> xBbins({1e-6,1e-5,1e-4,2e-4,4e-4,7e-4,1e-3,
 std::vector<double> nubins({1,2,3,4,5,6,8,10,12,14,16,18,20,
 		            24,30,40,50,80,120,140,160,
 			    200,250,300,400,500,1000,2000,3000,4000,5000});
-std::vector<double> pTbins({.0,.025,.05,.1,
-		            .2,.3,.4,.5,.6,.7,.8,.9,1.0,
-			    1.1,1.2,1.3,1.4,1.6,1.8,2.0});
+std::vector<double> pTbins({0.0,0.055,0.110,0.165,0.220,0.275,0.330,0.385,0.440,
+        0.495,0.550,0.605,0.660,0.715,0.770,0.825,0.880,0.935,0.990,1.045,1.100});
 
 class hadronizer{
 public:
@@ -116,14 +117,99 @@ bool trigger(Pythia & pythia) {
 
     // In Breit frame, where gamma ~ (0,0,0,-Q),
     double y     = (pProton * pGamma) / (pProton * peIn);
-    return (y<0.85) & (1.0<Q2) & (nu>4.) & (W2>4.);
+    return (y>0.1) && (y<0.85) && (1.0<Q2) && (W2>10.) && (x>0.023) && (x<0.6);
+}
+
+int count_final_particles(const std::vector<Particle> & plist) {
+    int count = 0;
+    for (const auto & p : plist) {
+        if (p.isFinal()) ++count;
+    }
+    return count;
+}
+
+void write_oscar_headers(std::ostream & out) {
+    out << "#!OSCAR2013 particle_lists t x y z mass p0 px py pz pdg ID charge begin_form_time xsecfac\n";
+    out << "# Units: fm fm fm fm GeV GeV GeV GeV GeV none none none fm none\n";
+}
+
+void write_compatible_metadata(std::ostream & out, int event_number, int Z, int A, Pythia & pythia) {
+    Vec4 pProton = pythia.event[1].p();
+    Vec4 peIn    = pythia.event[4].p();
+    Vec4 peOut   = pythia.event[6].p();
+    Vec4 pGamma = peIn - peOut;
+
+    double Q2 = -pGamma.m2Calc();
+    double xB = Q2 / (2. * pProton * pGamma);
+    double y = (pProton * pGamma) / (pProton * peIn);
+    double nu = pGamma.e();
+
+    out << std::setprecision(16);
+    out << "{\n";
+    out << "  \"event\": " << event_number << ",\n";
+    out << "  \"Z\": " << Z << ", \"A\": " << A << ",\n";
+    out << "  \"xB\": " << xB << ",\n";
+    out << "  \"Q2\": " << Q2 << ",\n";
+    out << "  \"y\": " << y << ",\n";
+    out << "  \"nu\": " << nu << ",\n";
+    out << "  \"P4\": [" << pProton.px() << ", "
+                         << pProton.py() << ", "
+                         << pProton.pz() << ", "
+                         << pProton.e()  << "],\n";
+    out << "  \"q4\": [" << pGamma.px() << ", "
+                         << pGamma.py() << ", "
+                         << pGamma.pz() << ", "
+                         << pGamma.e()  << "]\n";
+    out << "}\n";
+}
+
+void write_compatible_oscar_event(std::ostream & out, int event_number, const std::vector<Particle> & plist) {
+    out << "# event " << event_number << " out " << count_final_particles(plist) << "\n";
+
+    int particle_index = 0;
+    for (const auto & p : plist) {
+        if (!p.isFinal()) continue;
+
+        out << std::fixed << std::setprecision(2) << 0.00 << " "
+            << std::fixed << std::setprecision(5)
+            << 0.0 << " "
+            << 0.0 << " "
+            << 0.0 << " "
+            << p.m() << " "
+            << p.e() << " "
+            << p.px() << " "
+            << p.py() << " "
+            << p.pz() << " "
+            << p.id() << " "
+            << particle_index << " "
+            << static_cast<int>(p.charge()) << " "
+            << 0.0 << " "
+            << 0.0 << "\n";
+
+        ++particle_index;
+    }
+
+    out << "# event " << event_number << " end 0\n";
 }
 
 std::vector<std::vector<double> > DpT2_z, DpT2_xB, DpT2_Q2, DpT2_nu;
 std::vector<std::vector<double> > dNz, dNxB, dNQ2, dNnu, dNpT;
 std::vector<std::vector<std::vector<double> > > dNzpT;
 
-void FScount(Pythia & pythia, std::vector<Particle> & plist){
+struct DNzPtDebugCounters {
+    std::size_t eventsSeen = 0;
+    std::size_t particlesSeen = 0;
+    std::size_t particlesRejectedXF = 0;
+    std::size_t filledEntries = 0;
+};
+
+DNzPtDebugCounters dNzpTDebug;
+std::vector<std::string> dNzpTCutDebugLines;
+constexpr bool printPerParticleDebug = false;
+
+void FScount(Pythia & pythia, std::vector<Particle> & plist, int event_number){
+    ++dNzpTDebug.eventsSeen;
+
     // Compute four-momenta of proton, electron, virtual
     Vec4 pProton = pythia.event[1].p(); // four-momentum of proton
     Vec4 peIn    = pythia.event[4].p(); // incoming electron
@@ -145,19 +231,94 @@ void FScount(Pythia & pythia, std::vector<Particle> & plist){
     double z2=-1;
     int c1=0, c2=0;
     for (int j=0; j<plist.size(); j++){
-      auto p = plist[j];
-      if (p.isFinal() && p.isHadron()){
-         auto pbst = p.p();
+	      auto p = plist[j];
+	      if (p.isFinal() && p.isHadron()){
+         ++dNzpTDebug.particlesSeen;
+
+	         auto pbst = p.p();
          pbst.bstback(pCoM);
          double xF = dot3(pGamma2, pbst);
          double z = p.e()/nu;
-         auto prot = p.p();
-         prot.rot(0, phi);
-         prot.rot(theta, 0);
+	         auto prot = p.p();
+	         prot.rot(0, phi);
+	         prot.rot(theta, 0);
 	 double pT = prot.pT();
 	 double pT2 = pT*pT;
-         // multiplicity
-	 if ( W2>4.0 && xF>0.
+	         int debug_ipid = -1;
+         for (int ipid = 0; ipid < PIDS.size(); ++ipid) {
+             if (p.id() == PIDS[ipid]) {
+                 debug_ipid = ipid;
+                 break;
+             }
+         }
+         int debug_ptbin = -1;
+         for (int i = 0; i < pTbins.size() - 1; ++i) {
+             if (pTbins[i] < pT && pT < pTbins[i + 1]) {
+                 debug_ptbin = i;
+                 break;
+             }
+         }
+         int debug_zbin = -1;
+         if (0.2 < z && z < 0.3) debug_zbin = 0;
+         if (0.3 < z && z < 0.4) debug_zbin = 1;
+         if (0.4 < z && z < 0.6) debug_zbin = 2;
+         if (0.6 < z && z < 0.8) debug_zbin = 3;
+
+         std::string debug_status = "filled";
+         std::string debug_reason = "none";
+         if (!(W2 > 10.0)) {
+             debug_status = "cut";
+             debug_reason = "W2 <= 10";
+         } else if (!(xF > 0.0)) {
+             debug_status = "cut";
+             debug_reason = "xF <= 0";
+         } else if (debug_ipid < 0) {
+             debug_status = "cut";
+             debug_reason = "PDG not tracked";
+         } else if (!(z > 0.2)) {
+             debug_status = "cut";
+             debug_reason = "zh <= 0.2";
+         } else if (debug_ptbin < 0) {
+             debug_status = "cut";
+             debug_reason = "outside pT bins";
+         } else if (debug_zbin < 0) {
+             debug_status = "cut";
+             debug_reason = "outside zh slices";
+         }
+
+         if (debug_ipid >= 0 && !(xF > 0.0)) {
+             ++dNzpTDebug.particlesRejectedXF;
+         }
+         if (debug_status == "filled") {
+             ++dNzpTDebug.filledEntries;
+         }
+
+         if (p.id() == 211) {
+             std::ostringstream debug_line;
+             debug_line << std::setprecision(12)
+                        << "[old-hermes-debug] event=" << event_number
+                        << " particle_index=" << j
+                        << " pdg=" << p.id()
+                        << " zh=" << z
+                        << " E=" << p.e()
+                        << " px=" << p.px()
+                        << " py=" << p.py()
+                        << " pz=" << p.pz()
+                        << " pT_frame=LAB"
+                        << " pT=" << pT
+                        << " status=" << debug_status
+                        << " reason=\"" << debug_reason << "\""
+                        << "\n";
+             if (printPerParticleDebug) {
+                 if (debug_status == "filled") {
+                     std::cerr << debug_line.str();
+                 } else {
+                     dNzpTCutDebugLines.push_back(debug_line.str());
+                 }
+             }
+         }
+	         // multiplicity
+	 if ( W2>10.0 && xF>0.
 	      ){
              for (int ipid=0; ipid<PIDS.size();ipid++)
              if ( p.id()==PIDS[ipid] ) {
@@ -165,22 +326,23 @@ void FScount(Pythia & pythia, std::vector<Particle> & plist){
                      if (nubins[i]<nu && nu<nubins[i+1] && z>.2)
                          dNnu[ipid][i] += 1;
                  for (int i=0; i<xBbins.size()-1;i++)
-                     if (xBbins[i]<xB && xB<xBbins[i+1] && nu>6. && z>.2)
+                    if (xBbins[i]<xB && xB<xBbins[i+1] && z>.2)
                          dNxB[ipid][i] += 1;
 		 for (int i=0; i<Q2bins.size()-1;i++)
-                     if (Q2bins[i]<Q2 && Q2<Q2bins[i+1] && nu>6. && z>.2)
+                     if (Q2bins[i]<Q2 && Q2<Q2bins[i+1] && z>.2)
                          dNQ2[ipid][i] += 1;
                  for (int i=0; i<zbins.size()-1;i++)
-                     if (zbins[i]<z && z<zbins[i+1] && nu>6.)
+                     if (zbins[i]<z && z<zbins[i+1])
                          dNz[ipid][i] += 1;
                  for (int i=0; i<pTbins.size()-1;i++) {
-		     if (pTbins[i]<pT && pT<pTbins[i+1] && nu>6 && z>0.2)
-			     dNpT[ipid][i] += 1.;
-                     if (pTbins[i]<pT && pT<pTbins[i+1] && nu>6 && z>0.2) {
-			 if (0.2<z && z<0.4 ) dNzpT[ipid][0][i] += 1;
-			 if (0.4<z && z<0.7 ) dNzpT[ipid][1][i] += 1;
-			 if (0.7<z && z<1. ) dNzpT[ipid][2][i] += 1;
-                    }
+			     if (pTbins[i]<pT && pT<pTbins[i+1] && z>0.2)
+				     dNpT[ipid][i] += 1.;
+	                     if (pTbins[i]<pT && pT<pTbins[i+1] && z>0.2) {
+				 if (0.2<z && z<0.3 ) dNzpT[ipid][0][i] += 1;
+				 if (0.3<z && z<0.4 ) dNzpT[ipid][1][i] += 1;
+				 if (0.4<z && z<0.6 ) dNzpT[ipid][2][i] += 1;
+             if (0.6<z && z<0.8 ) dNzpT[ipid][3][i] += 1;
+	                    }
 		 }
 	     }
 	 
@@ -289,6 +451,23 @@ int main(int argc, char *argv[]) {
   int process_id = getpid();
   int ishadow = 0;
 
+  std::stringstream oscar_name;
+  oscar_name << header << "/" << Z << "-" << A << "-old-hermes.oscar";
+  std::ofstream oscar_out(oscar_name.str());
+  if (!oscar_out) {
+      std::cerr << "Cannot open OSCAR output file: " << oscar_name.str() << std::endl;
+      return 1;
+  }
+  write_oscar_headers(oscar_out);
+
+  std::stringstream meta_name;
+  meta_name << header << "/" << Z << "-" << A << "-old-hermes.meta.jsonl";
+  std::ofstream meta_out(meta_name.str());
+  if (!meta_out) {
+      std::cerr << "Cannot open metadata output file: " << meta_name.str() << std::endl;
+      return 1;
+  }
+
   std::random_device rd;  //Will be used to obtain a seed for the random number engine
   std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
   std::uniform_real_distribution<double> dist(0.,1.);
@@ -338,9 +517,9 @@ int main(int argc, char *argv[]) {
       double xB  = Q20 / (2. * pProton * pGamma); // Bjorken x
       double nu = pGamma.e();
       double W2 = (pProton + pGamma).m2Calc();
-      if (W2>4. && nu > 4.) 
+      if (W2>10. ) 
 	      Nt1 ++;
-      if (W2>4. && nu > 6.) 
+      if (W2>10. ) 
 	      Nt2 ++;
 
       auto & hardP = event[5];
@@ -826,14 +1005,33 @@ int main(int argc, char *argv[]) {
             event.append(p.id(), 201, p.col(), p.acol(),
                      p.px(), p.py(), p.pz(), p.e(), p.m());
 
-        // put the parton level event into a separate hadronizer
-        auto event2 = HZ.hadronize(pythia, Z, A);
-        // output
-        FScount(pythia, event2);
+      // put the parton level event into a separate hadronizer
+      auto event2 = HZ.hadronize(pythia, Z, A);
+      int output_event_id = Ntriggered - 1;
+      write_compatible_metadata(meta_out, output_event_id, Z, A, pythia);
+      write_compatible_oscar_event(oscar_out, output_event_id, event2);
+
+      // output
+      FScount(pythia, event2, output_event_id);
       
     }
+    std::cout << "OSCAROutput = " << oscar_name.str() << std::endl;
+    std::cout << "MetadataOutput = " << meta_name.str() << std::endl;
     std::cout << "TriggerRate = " << Ntriggered*1./count << std::endl;
     std::cout << "FailedRate = " << failed*1./count<< std::endl;
+    std::cerr << "[old-hermes-debug-summary] observable=dN_z_pT\n";
+    std::cerr << "Events seen:            " << dNzpTDebug.eventsSeen << "\n";
+    std::cerr << "Particles seen:         " << dNzpTDebug.particlesSeen << "\n";
+    std::cerr << "Particles rejected xF:  " << dNzpTDebug.particlesRejectedXF << "\n";
+    std::cerr << "Filled entries:         " << dNzpTDebug.filledEntries << "\n";
+    if (printPerParticleDebug) {
+        std::cerr << "[old-hermes-debug-cut-block] observable=dN_z_pT pdg=211 entries="
+                  << dNzpTCutDebugLines.size() << "\n";
+        for (const auto& line : dNzpTCutDebugLines) {
+            std::cerr << line;
+        }
+    }
+#if 0
     for (int i=0; i<PIDS.size(); i++){
         std::stringstream  ss;
         ss << header << "/" << Z << "-" << A << "-DpT2_z-"<<PIDS[i]<< "-"<<process_id<<".dat";
@@ -856,7 +1054,9 @@ int main(int argc, char *argv[]) {
         for (int j=0; j<Q2bins.size()-1;j++)
           f4 << Q2bins[j] << " " << Q2bins[j+1] << " " << (Q2bins[j]+Q2bins[j+1])/2. << " " << DpT2_Q2[2*i][j]/(DpT2_Q2[2*i+1][j]+1e-9) << std::endl;
     }
+#endif
     for (int i=0; i<PIDS.size(); i++){
+#if 0
         std::stringstream  ss;
         ss << header << "/" << Z << "-" << A << "-dN_z-"<<PIDS[i]<< "-"<<process_id<<".dat";
         std::ofstream f(ss.str());
@@ -877,17 +1077,20 @@ int main(int argc, char *argv[]) {
         std::ofstream f4(ss4.str());
         for (int j=0; j<Q2bins.size()-1;j++)
           f4 << Q2bins[j] << " " << Q2bins[j+1] << " " << (Q2bins[j]+Q2bins[j+1])/2. << " " << dNQ2[i][j]/Nt2 << std::endl;
+#endif
         std::stringstream  ss5;
-        ss5 << header << "/" << Z << "-" << A << "-dN_z_pT-"<<PIDS[i]<< "-"<<process_id<<".dat";
+        ss5 << header << "/" << Z << "-" << A << "-dN_z_pT-"<<PIDS[i]<< ".dat";
         std::ofstream f5(ss5.str());
-        for (int iz=0; iz<3; iz++) 
+        for (int iz=0; iz<4; iz++) 
 	    for (int j=0; j<pTbins.size()-1;j++)
-                f5 << pTbins[j] << " " << pTbins[j+1] << " " << (pTbins[j]+pTbins[j+1])/2. << " " << dNzpT[i][iz][j]/Nt2 << std::endl;
+	                f5 << pTbins[j] << " " << pTbins[j+1] << " " << (pTbins[j]+pTbins[j+1])/2. << " " << dNzpT[i][iz][j]/((pTbins[j+1]-pTbins[j])*Nt2) << std::endl;
+#if 0
 	std::stringstream  ss6;
 	ss6 << header << "/" << Z << "-" << A << "-dN_pT-"<<PIDS[i]<< "-"<<process_id<<".dat";
         std::ofstream f6(ss6.str());
         for (int j=0; j<pTbins.size()-1;j++)
             f6 << pTbins[j] << " " << pTbins[j+1] << " " << (pTbins[j]+pTbins[j+1])/2. << " " << dNpT[i][j]/Nt2 << std::endl;
+#endif
 
 
     }
